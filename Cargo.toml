@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 rand = "0.8"
-nom-bigint = {version = "0.4", features = ["rand"]}
+num-bigint = {version = "0.4", features = ["rand"]}
 hex = "0.4.3"
 tonic= "0.9"
 prost = "0.11"

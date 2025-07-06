@@ -42,7 +42,7 @@ impl ZKP {
     r1: &BigUint, // first commitment from prover
     r2: &BigUint,// second commitment from prover
     y1: &BigUint, // First public key from registration
-    y1:&BigUint, // Second public key from registration
+    y2:&BigUint, // Second public key from registration
     c: &BigUint, //challene we sent
     s: &BigUint, // solution from prover
   ) -> bool {
@@ -53,8 +53,8 @@ impl ZKP {
 
     // check consition 2: r2?= beta^s * y2^c mod p
     let cond2 = *r2
-        == (&self.beta.modpow(s,&self.p) * y2.midpow(c,&self.p))
-        .modpow(&BigUint::from(1u32_,*self.p));
+        == (&self.beta.modpow(s,&self.p) * y2.modpow(c,&self.p))
+        .modpow(&BigUint::from(1u32),&self.p);
 
     // both condition must be true
     cond1 && cond2
@@ -68,17 +68,13 @@ impl ZKP {
     rng.gen_biguint_below(bound)
   }
 
-  /// generate a random string for session IDs and auth IDs
-  pub fn generate_random_number_below(bound: &BigUint) -> BigUint {
-    let mut rng = rand::thread_rng();
-    rng.geb_biguint_below(bound)
-  }
+ 
 
   /// generate a random string for session IDs and auth IDs
    pub fn generate_random_string(size: usize) -> String {
     rand::thread_rng()
-    .sample_iter(rand::distribuitions::Alphanumeric)
-    .take(dize).map(char::from)
+    .sample_iter(rand::distributions::Alphanumeric)
+    .take(size).map(char::from)
     .collect()
    }
 
