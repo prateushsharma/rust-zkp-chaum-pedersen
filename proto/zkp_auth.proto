@@ -1,66 +1,37 @@
-syntac = "proto3";
+syntax = "proto3";
 package zkp_auth;
 
-/*
- * REGISTRATION PHASE
- * Prover registers with the server by sending:
- * y1 = alpha^x mod p  (commitment using first generator)
- * y2 = beta^x mod p   (commitment using second generator)
- * where x is the secret password
- */ 
-
 message RegisterRequest {
-    string user = 1;    // Username for identification
-    bytes y1 = 2;       // First commitment (alpha^x mod p)
-    bytes y2 = 3;       // Second commitment (beta^x mod p)
+    string user = 1;
+    bytes y1 = 2;
+    bytes y2 = 3;
 }
 
 message RegisterResponse {
-    // Empty response - just confirms registration succeeded
-}
-/*
- * CHALLENGE PHASE
- * Prover initiates authentication by sending:
- * r1 = alpha^k mod p  (commitment with random k)
- * r2 = beta^k mod p   (commitment with same random k)
- * 
- * Verifier responds with a random challenge "c"
- */ 
- message AuthenticationChallengeRequest {
-    string user = 1;    // Which user is trying to authenticate
-    bytes r1 = 2;       // Random commitment 1 (alpha^k mod p)
-    bytes r2 = 3;       // Random commitment 2 (beta^k mod p)
-}
-message AuthenticationChallengeResponse {
-    string auth_id = 1; // Unique ID for this auth session
-    bytes c = 2;        // Random challenge from server
-}
-/*
- * VERIFICATION PHASE
- * Prover sends solution "s = k - c * x mod q" to the challenge
- * If correct, verifier sends back a session ID
- */ 
- message AuthenticationAnswerRequest {
-    string auth_id = 1; // Which auth session this answers
-    bytes s = 2;        // Solution to the challenge
-}
-message AuthenticationAnswerResponse {
-    string session_id = 1; // Session token if authentication succeeded
-}
-/*
- * gRPC SERVICE DEFINITION
- * Defines the three endpoints our server will provide
- */
-service Auth {
-    // Step 1: Register a new user
-    rpc Register(RegisterRequest) returns (RegisterResponse) {}
-    
-    // Step 2: Start authentication process
-    rpc CreateAuthenticationChallenge(AuthenticationChallengeRequest) 
-        returns (AuthenticationChallengeResponse) {}
-    
-    // Step 3: Complete authentication
-    rpc VerifyAuthentication(AuthenticationAnswerRequest) 
-        returns (AuthenticationAnswerResponse) {}
 }
 
+message AuthenticationChallengeRequest {
+    string user = 1;
+    bytes r1 = 2;
+    bytes r2 = 3;
+}
+
+message AuthenticationChallengeResponse {
+    string auth_id = 1;
+    bytes c = 2;
+}
+
+message AuthenticationAnswerRequest {
+    string auth_id = 1;
+    bytes s = 2;
+}
+
+message AuthenticationAnswerResponse {
+    string session_id = 1;
+}
+
+service Auth {
+    rpc Register(RegisterRequest) returns (RegisterResponse) {}
+    rpc CreateAuthenticationChallenge(AuthenticationChallengeRequest) returns (AuthenticationChallengeResponse) {}
+    rpc VerifyAuthentication(AuthenticationAnswerRequest) returns (AuthenticationAnswerResponse) {}
+}
