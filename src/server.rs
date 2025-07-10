@@ -1,138 +1,169 @@
-// src/server.rs
-
-// Standard library imports for data structures and thread safety
 use std::{collections::HashMap, sync::Mutex};
 
-// External crate imports
 use num_bigint::BigUint;
 use tonic::{transport::Server, Code, Request, Response, Status};
 
-// Import our ZKP library (note: dashes in Cargo.toml become underscores in code)
 use rust_zkp_chaum_pedersen::ZKP;
 
-// Import the generated gRPC code (this file is created by build.rs from our .proto file)
 pub mod zkp_auth {
     include!("./zkp_auth.rs");
 }
 
-// Import specific message types and server traits from the generated code
 use zkp_auth::{
     auth_server::{Auth, AuthServer},
-    RegisterRequest, RegisterResponse,
-    AuthenticationChallengeRequest, AuthenticationChallengeResponse,
-    AuthenticationAnswerRequest, AuthenticationAnswerResponse,
+    AuthenticationAnswerRequest, AuthenticationAnswerResponse, AuthenticationChallengeRequest,
+    AuthenticationChallengeResponse, RegisterRequest, RegisterResponse,
 };
 
-// Main server struct that implements the authentication service
-// Debug allows us to print the struct, Default provides default values
 #[derive(Debug, Default)]
 pub struct AuthImpl {
-    // Thread-safe storage for user information
-    // Mutex ensures only one thread can access the HashMap at a time
     pub user_info: Mutex<HashMap<String, UserInfo>>,
+    pub auth_id_to_user: Mutex<HashMap<String, String>>,
 }
 
-// Struct to store all information related to a user
 #[derive(Debug, Default)]
 pub struct UserInfo {
-    // Registration data
-    pub user_name: String,  // The username
-    pub y1: BigUint,       // y1 = alpha^x mod p (public value derived from user's secret)
-    pub y2: BigUint,       // y2 = beta^x mod p (public value derived from user's secret)
-    
-    // Note: Authentication fields will be added in Lecture 4
-    // pub r1: BigUint,      // Challenge request values
-    // pub r2: BigUint,      // Challenge request values  
-    // pub c: BigUint,       // Challenge from server
-    // pub s: BigUint,       // Solution to challenge
-    // pub session_id: String, // Session ID for successful authentication
+    // registration
+    pub user_name: String,
+    pub y1: BigUint,
+    pub y2: BigUint,
+    // authorization
+    pub r1: BigUint,
+    pub r2: BigUint,
+    // verification
+    pub c: BigUint,
+    pub s: BigUint,
+    pub session_id: String,
 }
 
-// Implementation of the Auth trait for our server
-// This tells Rust that AuthImpl can handle Auth service requests
 #[tonic::async_trait]
 impl Auth for AuthImpl {
-    
-    // Handle user registration requests
     async fn register(
         &self,
         request: Request<RegisterRequest>,
     ) -> Result<Response<RegisterResponse>, Status> {
-        
-        // Extract the actual request data from the gRPC wrapper
         let request = request.into_inner();
-        
-        // Get username from the request
+
         let user_name = request.user;
-        println!("Processing Registration for username: {:?}", user_name);
-        
-        // Create user info struct with the registration data
+        println!("Processing Registration username: {:?}", user_name);
+
         let user_info = UserInfo {
             user_name: user_name.clone(),
-            // Convert byte arrays from protobuf back to BigUint numbers
             y1: BigUint::from_bytes_be(&request.y1),
             y2: BigUint::from_bytes_be(&request.y2),
-            // Use default values for other fields
             ..Default::default()
         };
-        
-        // Lock the user storage HashMap and insert the new user
-        // The lock is automatically released when this variable goes out of scope
+
         let user_info_hashmap = &mut self.user_info.lock().unwrap();
         user_info_hashmap.insert(user_name.clone(), user_info);
-        
-        println!("Successful Registration for username: {:?}", user_name);
-        
-        // Return successful response (RegisterResponse is empty for now)
+
+        println!("✅ Successful Registration username: {:?}", user_name);
         Ok(Response::new(RegisterResponse {}))
     }
-    
-    // Placeholder method for authentication challenges
-    // Will be implemented properly in Lecture 4
+
     async fn create_authentication_challenge(
         &self,
-        _request: Request<AuthenticationChallengeRequest>,
+        request: Request<AuthenticationChallengeRequest>,
     ) -> Result<Response<AuthenticationChallengeResponse>, Status> {
-        println!("create_authentication_challenge called (placeholder)");
-        
-        // Return "not implemented" error for now
-        Err(Status::new(
-            Code::Unimplemented,
-            "Authentication challenge not implemented yet. Coming in Lecture 4!".to_string(),
-        ))
+        let request = request.into_inner();
+
+        let user_name = request.user;
+        println!("Processing Challenge Request username: {:?}", user_name);
+
+        let user_info_hashmap = &mut self.user_info.lock().unwrap();
+
+        if let Some(user_info) = user_info_hashmap.get_mut(&user_name) {
+            let (_, _, _, q) = ZKP::get_constants();
+            let c = ZKP::generate_random_number_below(&q);
+            let auth_id = ZKP::generate_random_string(12);
+
+            user_info.c = c.clone();
+            user_info.r1 = BigUint::from_bytes_be(&request.r1);
+            user_info.r2 = BigUint::from_bytes_be(&request.r2);
+
+            let auth_id_to_user = &mut self.auth_id_to_user.lock().unwrap();
+            auth_id_to_user.insert(auth_id.clone(), user_name.clone());
+
+            println!("✅ Successful Challenge Request username: {:?}", user_name);
+            
+            Ok(Response::new(AuthenticationChallengeResponse {
+                auth_id,
+                c: c.to_bytes_be(),
+            }))
+        } else {
+            Err(Status::new(
+                Code::NotFound,
+                format!("User: {} not found in database", user_name),
+            ))
+        }
     }
-    
-    // Placeholder method for authentication verification
-    // Will be implemented properly in Lecture 4
+
     async fn verify_authentication(
         &self,
-        _request: Request<AuthenticationAnswerRequest>,
+        request: Request<AuthenticationAnswerRequest>,
     ) -> Result<Response<AuthenticationAnswerResponse>, Status> {
-        println!("verify_authentication called (placeholder)");
-        
-        // Return "not implemented" error for now
-        Err(Status::new(
-            Code::Unimplemented,
-            "Authentication verification not implemented yet. Coming in Lecture 4!".to_string(),
-        ))
+        let request = request.into_inner();
+
+        let auth_id = request.auth_id;
+        println!("Processing Challenge Solution auth_id: {:?}", auth_id);
+
+        let auth_id_to_user_hashmap = &mut self.auth_id_to_user.lock().unwrap();
+
+        if let Some(user_name) = auth_id_to_user_hashmap.get(&auth_id) {
+            let user_info_hashmap = &mut self.user_info.lock().unwrap();
+            let user_info = user_info_hashmap
+                .get_mut(user_name)
+                .expect("AuthId not found on hashmap");
+
+            let s = BigUint::from_bytes_be(&request.s);
+            user_info.s = s;
+
+            let (alpha, beta, p, q) = ZKP::get_constants();
+            let zkp = ZKP { alpha, beta, p, q };
+
+            let verification = zkp.verify(
+                &user_info.r1,
+                &user_info.r2,
+                &user_info.y1,
+                &user_info.y2,
+                &user_info.c,
+                &user_info.s,
+            );
+
+            if verification {
+                let session_id = ZKP::generate_random_string(12);
+
+                println!("✅ Correct Challenge Solution username: {:?}", user_name);
+
+                Ok(Response::new(AuthenticationAnswerResponse { session_id }))
+            } else {
+                println!("❌ Wrong Challenge Solution username: {:?}", user_name);
+
+                Err(Status::new(
+                    Code::PermissionDenied,
+                    format!("AuthId: {} bad solution to the challenge", auth_id),
+                ))
+            }
+        } else {
+            Err(Status::new(
+                Code::NotFound,
+                format!("AuthId: {} not found in database", auth_id),
+            ))
+        }
     }
 }
 
-// Main function - entry point for our server application
 #[tokio::main]
 async fn main() {
-    // Define the network address our server will listen on
     let addr = "127.0.0.1:5005".to_string();
-    
-    println!("Starting ZKP Authentication Server on {}", addr);
-    
-    // Create an instance of our server implementation
+
+    println!("✅ Running the server in {}", addr);
+
     let auth_impl = AuthImpl::default();
-    
-    // Build and start the gRPC server
+
     Server::builder()
-        .add_service(AuthServer::new(auth_impl))  // Wrap our implementation
-        .serve(addr.parse().expect("Could not parse address"))  // Start listening
-        .await  // Wait for the server (it runs forever)
-        .unwrap();  // Panic if server fails to start
+        .add_service(AuthServer::new(auth_impl))
+        .serve(addr.parse().expect("could not convert address"))
+        .await
+        .unwrap();
 }
