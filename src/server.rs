@@ -122,7 +122,7 @@ impl Auth for AuthImpl {
 #[tokio::main]
 async fn main() {
     // Define the network address our server will listen on
-    let addr = "127.0.0.1:50051".to_string();
+    let addr = "127.0.0.1:5005".to_string();
     
     println!("Starting ZKP Authentication Server on {}", addr);
     
