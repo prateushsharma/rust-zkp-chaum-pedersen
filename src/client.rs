@@ -35,7 +35,7 @@ async fn main() {
 
     // Step 1: Connect to the server
     println!("🔌 Connecting to ZKP Authentication Server...");
-    let mut client = AuthClient::connect("http://127.0.0.1:5005")
+    let mut client = AuthClient::connect("http://127.0.0.1:50051")
         .await
         .expect("❌ Could not connect to the server");
     println!("✅ Connected to the server successfully!");
