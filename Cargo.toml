@@ -21,3 +21,7 @@ tonic-build = "0.11"
 [[bin]]
 name = "server"
 path = "./src/server.rs"
+
+[[bin]]
+name = "client"
+path = "./src/client.rs"
