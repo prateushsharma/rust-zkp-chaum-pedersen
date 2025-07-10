@@ -1,0 +1,10 @@
+services:
+  zkpserver:
+    build: .
+    volumes:
+      - ./:/zkp-server
+    environment:
+      - USER=guido
+    container_name: zkpserver
+    ports:
+      - "50051:50051"

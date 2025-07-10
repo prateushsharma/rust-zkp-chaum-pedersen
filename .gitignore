@@ -1,2 +1,25 @@
+# Rust build artifacts
 /target
+
+# Local binaries or temp files
+*.rs.bk
+*.pid
+
+# If you want to ignore a specific source file (uncommon!)
 zkp_auth.rs
+
+# Docker Compose local override
+docker-compose.override.yml
+
+# Docker Desktop config if present
+.docker/
+
+# Local env files for Compose
+.env
+.env.*
+*.env
+
+# Named volumes or data folders (if you bind-mount)
+volumes/
+data/
+db_data/

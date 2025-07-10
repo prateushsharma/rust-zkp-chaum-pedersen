@@ -1,0 +1,9 @@
+/target
+src/zkp_auth.rs
+.git
+.gitignore
+*.md
+.vscode
+.idea
+*.log
+*.tmp
