@@ -1,169 +1,155 @@
-use std::{collections::HashMap, sync::Mutex};
-
 use num_bigint::BigUint;
-use tonic::{transport::Server, Code, Request, Response, Status};
+use std::io::stdin;
 
-use rust_zkp_chaum_pedersen::ZKP;
-
+// Import our generated gRPC code
 pub mod zkp_auth {
     include!("./zkp_auth.rs");
 }
 
+// Import the specific types we need from the generated code
 use zkp_auth::{
-    auth_server::{Auth, AuthServer},
-    AuthenticationAnswerRequest, AuthenticationAnswerResponse, AuthenticationChallengeRequest,
-    AuthenticationChallengeResponse, RegisterRequest, RegisterResponse,
+    auth_client::AuthClient,           // The client to connect to our server
+    AuthenticationAnswerRequest,       // Request to send our solution
+    AuthenticationChallengeRequest,    // Request to ask for a challenge
+    RegisterRequest,                   // Request to register a new user
 };
 
-#[derive(Debug, Default)]
-pub struct AuthImpl {
-    pub user_info: Mutex<HashMap<String, UserInfo>>,
-    pub auth_id_to_user: Mutex<HashMap<String, String>>,
-}
+// Import our ZKP library
+use rust_zkp_chaum_pedersen::ZKP;
 
-#[derive(Debug, Default)]
-pub struct UserInfo {
-    // registration
-    pub user_name: String,
-    pub y1: BigUint,
-    pub y2: BigUint,
-    // authorization
-    pub r1: BigUint,
-    pub r2: BigUint,
-    // verification
-    pub c: BigUint,
-    pub s: BigUint,
-    pub session_id: String,
-}
-
-#[tonic::async_trait]
-impl Auth for AuthImpl {
-    async fn register(
-        &self,
-        request: Request<RegisterRequest>,
-    ) -> Result<Response<RegisterResponse>, Status> {
-        let request = request.into_inner();
-
-        let user_name = request.user;
-        println!("Processing Registration username: {:?}", user_name);
-
-        let user_info = UserInfo {
-            user_name: user_name.clone(),
-            y1: BigUint::from_bytes_be(&request.y1),
-            y2: BigUint::from_bytes_be(&request.y2),
-            ..Default::default()
-        };
-
-        let user_info_hashmap = &mut self.user_info.lock().unwrap();
-        user_info_hashmap.insert(user_name.clone(), user_info);
-
-        println!("✅ Successful Registration username: {:?}", user_name);
-        Ok(Response::new(RegisterResponse {}))
-    }
-
-    async fn create_authentication_challenge(
-        &self,
-        request: Request<AuthenticationChallengeRequest>,
-    ) -> Result<Response<AuthenticationChallengeResponse>, Status> {
-        let request = request.into_inner();
-
-        let user_name = request.user;
-        println!("Processing Challenge Request username: {:?}", user_name);
-
-        let user_info_hashmap = &mut self.user_info.lock().unwrap();
-
-        if let Some(user_info) = user_info_hashmap.get_mut(&user_name) {
-            let (_, _, _, q) = ZKP::get_constants();
-            let c = ZKP::generate_random_number_below(&q);
-            let auth_id = ZKP::generate_random_string(12);
-
-            user_info.c = c.clone();
-            user_info.r1 = BigUint::from_bytes_be(&request.r1);
-            user_info.r2 = BigUint::from_bytes_be(&request.r2);
-
-            let auth_id_to_user = &mut self.auth_id_to_user.lock().unwrap();
-            auth_id_to_user.insert(auth_id.clone(), user_name.clone());
-
-            println!("✅ Successful Challenge Request username: {:?}", user_name);
-            
-            Ok(Response::new(AuthenticationChallengeResponse {
-                auth_id,
-                c: c.to_bytes_be(),
-            }))
-        } else {
-            Err(Status::new(
-                Code::NotFound,
-                format!("User: {} not found in database", user_name),
-            ))
-        }
-    }
-
-    async fn verify_authentication(
-        &self,
-        request: Request<AuthenticationAnswerRequest>,
-    ) -> Result<Response<AuthenticationAnswerResponse>, Status> {
-        let request = request.into_inner();
-
-        let auth_id = request.auth_id;
-        println!("Processing Challenge Solution auth_id: {:?}", auth_id);
-
-        let auth_id_to_user_hashmap = &mut self.auth_id_to_user.lock().unwrap();
-
-        if let Some(user_name) = auth_id_to_user_hashmap.get(&auth_id) {
-            let user_info_hashmap = &mut self.user_info.lock().unwrap();
-            let user_info = user_info_hashmap
-                .get_mut(user_name)
-                .expect("AuthId not found on hashmap");
-
-            let s = BigUint::from_bytes_be(&request.s);
-            user_info.s = s;
-
-            let (alpha, beta, p, q) = ZKP::get_constants();
-            let zkp = ZKP { alpha, beta, p, q };
-
-            let verification = zkp.verify(
-                &user_info.r1,
-                &user_info.r2,
-                &user_info.y1,
-                &user_info.y2,
-                &user_info.c,
-                &user_info.s,
-            );
-
-            if verification {
-                let session_id = ZKP::generate_random_string(12);
-
-                println!("✅ Correct Challenge Solution username: {:?}", user_name);
-
-                Ok(Response::new(AuthenticationAnswerResponse { session_id }))
-            } else {
-                println!("❌ Wrong Challenge Solution username: {:?}", user_name);
-
-                Err(Status::new(
-                    Code::PermissionDenied,
-                    format!("AuthId: {} bad solution to the challenge", auth_id),
-                ))
-            }
-        } else {
-            Err(Status::new(
-                Code::NotFound,
-                format!("AuthId: {} not found in database", auth_id),
-            ))
-        }
-    }
-}
-
-#[tokio::main]
+#[tokio::main]  // This makes our main function async
 async fn main() {
-    let addr = "127.0.0.1:5005".to_string();
+    // Buffer to store user input
+    let mut buf = String::new();
+    
+    // Get the mathematical constants for our ZKP protocol
+    let (alpha, beta, p, q) = ZKP::get_constants();
+    
+    // Create a ZKP instance with these constants
+    let zkp = ZKP {
+        alpha: alpha.clone(),
+        beta: beta.clone(),
+        p: p.clone(),
+        q: q.clone(),
+    };
 
-    println!("✅ Running the server in {}", addr);
-
-    let auth_impl = AuthImpl::default();
-
-    Server::builder()
-        .add_service(AuthServer::new(auth_impl))
-        .serve(addr.parse().expect("could not convert address"))
+    // Step 1: Connect to the server
+    println!("🔌 Connecting to ZKP Authentication Server...");
+    let mut client = AuthClient::connect("http://127.0.0.1:5005")
         .await
-        .unwrap();
+        .expect("❌ Could not connect to the server");
+    println!("✅ Connected to the server successfully!");
+
+    // Step 2: Get username from user
+    println!("\n📝 === REGISTRATION PHASE ===");
+    println!("Please provide your username:");
+    stdin()
+        .read_line(&mut buf)
+        .expect("❌ Could not read username from input");
+    let username = buf.trim().to_string();
+    buf.clear(); // Clear buffer for next input
+
+    // Step 3: Get password from user for registration
+    println!("Please provide your password:");
+    stdin()
+        .read_line(&mut buf)
+        .expect("❌ Could not read password from input");
+    
+    // Convert password string to BigUint (this is our secret 'x')
+    let password = BigUint::from_bytes_be(buf.trim().as_bytes());
+    buf.clear();
+
+    // Step 4: Generate registration values (y1, y2)
+    println!("🔐 Generating registration proof...");
+    let (y1, y2) = zkp.compute_pair(&password);
+    
+    // What's happening here:
+    // y1 = alpha^password mod p
+    // y2 = beta^password mod p
+    // These are our "public commitments" - they prove we know the password
+    // without revealing what the password actually is!
+
+    // Step 5: Send registration request to server
+    let register_request = RegisterRequest {
+        user: username.clone(),
+        y1: y1.to_bytes_be(),  // Convert BigUint to bytes for network transmission
+        y2: y2.to_bytes_be(),
+    };
+
+    let _response = client
+        .register(register_request)
+        .await
+        .expect("❌ Could not register with server");
+
+    println!("✅ Registration was successful!");
+
+    // Step 6: Now let's authenticate (login)
+    println!("\n🔐 === AUTHENTICATION PHASE ===");
+    println!("Please provide your password again (to login):");
+    stdin()
+        .read_line(&mut buf)
+        .expect("❌ Could not read password from input");
+    let login_password = BigUint::from_bytes_be(buf.trim().as_bytes());
+    buf.clear();
+
+    // Step 7: Generate random number 'k' for this authentication session
+    println!("🎲 Generating random challenge values...");
+    let k = ZKP::generate_random_number_below(&q);
+    
+    // Step 8: Compute commitment values for this session
+    let (r1, r2) = zkp.compute_pair(&k);
+    
+    // What's happening:
+    // r1 = alpha^k mod p
+    // r2 = beta^k mod p
+    // These are our "session commitments" - they start the authentication
+
+    // Step 9: Send authentication challenge request
+    let challenge_request = AuthenticationChallengeRequest {
+        user: username.clone(),
+        r1: r1.to_bytes_be(),
+        r2: r2.to_bytes_be(),
+    };
+
+    println!("📤 Sending authentication challenge request...");
+    let challenge_response = client
+        .create_authentication_challenge(challenge_request)
+        .await
+        .expect("❌ Could not request challenge from server")
+        .into_inner();
+
+    // Step 10: Extract challenge from server response
+    let auth_id = challenge_response.auth_id;
+    let c = BigUint::from_bytes_be(&challenge_response.c);
+    
+    println!("📥 Received challenge from server (auth_id: {})", auth_id);
+
+    // Step 11: Solve the challenge
+    println!("🧮 Solving the authentication challenge...");
+    let s = zkp.solve(&k, &c, &login_password);
+    
+    // What's happening:
+    // s = k - c * password mod q
+    // This is our "proof" that we know the password without revealing it!
+    // The server can verify this using our public commitments (y1, y2) and (r1, r2)
+
+    // Step 12: Send our solution back to the server
+    let answer_request = AuthenticationAnswerRequest {
+        auth_id,
+        s: s.to_bytes_be(),
+    };
+
+    println!("📤 Sending authentication solution...");
+    let auth_response = client
+        .verify_authentication(answer_request)
+        .await
+        .expect("❌ Could not verify authentication with server")
+        .into_inner();
+
+    // Step 13: Success! We're authenticated
+    println!("🎉 Authentication successful!");
+    println!("✅ Logged in! Session ID: {}", auth_response.session_id);
+    println!("\n🔐 Zero-Knowledge Proof authentication completed!");
+    println!("   → You proved you know the password without revealing it!");
+    println!("   → The server verified your proof cryptographically!");
 }
