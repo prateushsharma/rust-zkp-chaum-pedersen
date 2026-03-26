@@ -44,6 +44,20 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Debug Docker secrets
+      run: |
+        echo "DOCKER_USERNAME length: ${#DOCKER_USERNAME}"
+        echo "DOCKER_PASSWORD length: ${#DOCKER_PASSWORD}"
+        if [ -z "${DOCKER_USERNAME}" ] || [ -z "${DOCKER_PASSWORD}" ]; then
+          echo "ERROR: Docker secrets are missing or empty in GitHub Actions."
+          exit 1
+        else
+          echo "Secrets appear to be set."
+        fi
+      env:
+        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
     - name: Log in to Docker Hub
       uses: docker/login-action@v3
       with:
