@@ -59,12 +59,18 @@ jobs:
         tags: ghcr.io/${{ github.repository_owner }}/rust-zkp-chaum-pedersen:latest
 
     - name: Optional Docker Hub push (if secrets exist)
-      if: ${{ secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD }}
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: true
-        tags: ${{ secrets.DOCKER_USERNAME }}/rust-zkp-chaum-pedersen:latest
+      run: |
+        if [ -n "${DOCKER_USERNAME}" ] && [ -n "${DOCKER_PASSWORD}" ]; then
+          echo "Docker Hub credentials found; pushing image..."
+          docker login -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD"
+          docker build -t "$DOCKER_USERNAME/rust-zkp-chaum-pedersen:latest" .
+          docker push "$DOCKER_USERNAME/rust-zkp-chaum-pedersen:latest"
+        else
+          echo "Skipping Docker Hub push because DOCKER_USERNAME/DOCKER_PASSWORD are missing."
+        fi
+      env:
+        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
 
 
   integration-test:
