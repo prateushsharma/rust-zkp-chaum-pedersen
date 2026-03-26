@@ -81,6 +81,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Modify docker-compose to use pushed image
+      run: |
+        sed -i 's|build: .|image: ${{ secrets.DOCKER_USERNAME }}/rust-zkp-chaum-pedersen:latest|' docker-compose.yaml
+
     - name: Run integration tests with Docker Compose
       run: |
         docker-compose up -d
