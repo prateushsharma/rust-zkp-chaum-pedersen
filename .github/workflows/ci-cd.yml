@@ -83,11 +83,12 @@ jobs:
 
     - name: Modify docker-compose to use pushed image
       run: |
-        sed -i 's|build: .|image: ${{ secrets.DOCKER_USERNAME }}/rust-zkp-chaum-pedersen:latest|' docker-compose.yaml
+        IMAGE="${{ secrets.DOCKER_USERNAME }}/rust-zkp-chaum-pedersen:latest"
+        sed -i "s|build: .|image: $IMAGE|" docker-compose.yaml
 
     - name: Run integration tests with Docker Compose
       run: |
-        docker-compose up -d
+        docker compose up -d
         sleep 10
-        docker-compose exec zkpserver cargo test --test integration_tests
-        docker-compose down
+        docker compose exec zkpserver cargo test --test integration_tests
+        docker compose down
